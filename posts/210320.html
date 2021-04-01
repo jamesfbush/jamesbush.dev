@@ -1,0 +1,307 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Posts | jamesbush.dev</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" charset=utf-8>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@100&family=Roboto&family=Varta:wght@300&display=swap">
+  <link rel="stylesheet" type="text/css" href="https://jamesbush.dev/index.css">
+</head>
+<body>
+  <h1>James Bush</h1>
+  <h2>
+    <a class="header" href="https://jamesbush.dev/index.html">⌂</a>
+    <a class="header" >|</a>
+    <a class="header" href="https://jamesbush.dev/about.html">about</a>
+    <a class="header" >|</a>
+    <a class="header" href="https://jamesbush.dev/posts">posts</a>
+    <a class="header" >|</a>
+    <a class="header" href="https://jamesbush.dev/projects.html">projects</a>
+    <a class="header" >|</a>
+    <a class="header" href="https://jamesbush.dev/contact.html">contact</a>
+    <a class="header" >|</a>
+    <a class="header" href="https://jamesbush.dev/etc.html">etc</a>
+  </h2>
+  <div>
+    <h3><strong>Options Data Web Scraper: Python</strong></h3>
+    <p><strong>Mar. 20, 2021</strong></p>
+    <p>The world of finance holds some of richest sources of data, but these sources often
+      lie behind a paywall. For options data, the only free and readily available
+      source is Yahoo Finance (YF). YF had an official API, but it has been shuttered
+      since 2019. While there is an unofficial YF API, for this project I wanted
+      to obtain the YF data by scraping it directly from the user-facing page.
+      There are Python libraries specifically tuned for the
+      task of web scraping (e.g., Scrapy). But, this project explores building a
+      web scraper from scratch. </p>
+
+    <p>As a learning exercise, this approach offers dissection of a highly-trafficked
+      web property and and the opportunity to use several powerful Python libraries
+      in concert. For learning Python, this project is a step up in
+      difficulty from the toy projects in beginner and intermediate Python MOOC
+      courses. It also has real-world usefulness: the finished product will
+      download, organize, and save a .csv of options trading data for a
+      user-specified ticker symbol and number of expirations directly from YF.
+      The data it obtains can be used in a variety of other
+      analyses and projects (e.g., making a <a href="https://jamesbush.dev/posts/201229.html" class="body" download >heatmap</a>). </p>
+
+      <h4>What you'll need:</h4>
+      <p>The scraper is written in Python and uses Pandas and BeautifulSoup to
+        parse HTML data and  organize it into a .csv file. Some additional features
+        rely on the TQDM module and the standard modules in Python (Time, Datetime,
+        and Requests). So, make sure you have the following ready to go:</p>
+      <p><strong>Python 3.7+ installation</strong> – Time, Datetime and Requests are built-in.</p>
+      <p><strong>Pandas, BeautifulSoup (bs4), and TQDM</strong> - If you're working with a recent distribution of
+        Anaconda, these come installed. Otherwise, install them with pip.</p>
+      <p><strong>Firefox</strong> – The inspector (Shift+Ctrl+C) makes identifying
+        various parts of the HTML/CSS much easier. </p>
+      <p><strong>Read the robots.txt and TOS</strong> - Before building any web scraper,
+        you’ll want to make sure you are respecting the resource.
+        Navigate to YF’s instructions for automated collection of its resources
+         <a href="https://finance.yahoo.com/robots.txt" class="body" target="_blank">here</a>.</p>
+
+      <h4>Create a virtual environment:</h4>
+      <p>If you don't have it installed, Anaconda is recommended as a package
+        management platform <a href="https://www.anaconda.com/products/individual" class="body" target="_blank">(download)</a>.
+        This is especially true with all the dependencies that come with doing
+        data visualization-type projects. With Anaconda installed,
+        open a terminal and create a virtual environment.</p>
+      <pre><code>conda create --name myenv</code></pre></p>
+      <p>If you don't specify a path for the environment, a prompt will ask if you wish to use the default path.
+        If so, input yes. Then, activate the vitrual environment.
+      <pre><code>conda activate myenv</pre></code>
+      <p>The terminal window should then display the virtual environment as active.</p>
+
+      <h4>Python File</h4>
+      <p>Create a Python file in your editor of choice. In the first lines, we'll
+        import requests to obtain the HTML, Pandas to create dataframes for arranging our data,
+        Time for throttling requests, BeautifulSoup for parsing HTML, Datetime for labeling,
+        and TQDM to show a status bar while the program is downloading data.</p>
+      <pre><code>import requests<br>import pandas as pd<br>import time as tm<br>from bs4 import BeautifulSoup as bs<br>from datetime import datetime as dt<br>from tqdm import tqdm<br></pre></code>
+
+      <p>Following imports, we will create four functions: one to obtain user inputs
+        and set the initial request URL, a second to obtain and parse the HTML,
+        and a third to create the individual and combined dataframes, and a fourth
+        function to assemble the dataframes and write them to a consolidated .csv file.
+        Before getting any further with the code, we'll look at a few preliminaries.</p>
+
+      <h4>Inspect the Yahoo Finance Page</h4>
+      <p>The base URL for any request for options data to Yahoo Finance is straightforward.
+        For example, for the SPY ETF, it is: <code>https://finance.yahoo.com/quote/SPY/options?p=SPY</code>.
+
+        Pasting that URL into Firefox will bring us to the main options page for
+        the ticker symbol. The rendered page displays the current trading data for
+        the immediately following expiration, which is
+        usually a day or two out from the current date. In the upper left hand
+        corner of the main page, we see a drop-down box. Clicking the box reveals
+        links to all of the following expirations. We’ll want the next expiration
+        and as many following expirations as the user may specify (e.g., 25 expirations).
+        But since these can’t all be loaded on one page, getting all of them
+        takes a bit more effort. </p>
+
+      <p>One issue we notice is that not all options contracts are written with
+        standard set of expiration dates. One security may have 10 expirations,
+        another may have 25. Those may be set to different date intervals, so
+        we need a dynamic way to identify what the expirations are for a given
+        security. Our scraper will need to catalog each of those expirations and
+        sequentially access each depending on the date and URL.
+        Let’s look again at the YF page. </p>
+
+      <p>If we now click on one of the expiration dates from the drop-down, it
+        will take the browser to a URL that contains some additional useful
+        information. For example, the URL for the March 26, 2021 expiration of
+        SPY is:
+        <p>
+        <code>https://finance.yahoo.com/quote/SPY/options?p=SPY&date=1616716800</code></p>
+
+      <p>The date numbers appended to the end are a Unix timestamp. So, we note
+        that every forward expiration is set with a Unix timestamp for the
+        expiration date—this helps. If we open the inspector again and Ctrl+F
+        one of the timestamps, we note that deeply embedded in the HTML is a
+        series of expirations that from the menu. So, to get all forward expires,
+        we’ll parse the page with BeautifulSoup and extract each Unix timestamp,
+        convert the timestamps to URLs, then sequentially request each URL.</p>
+
+      <p>Another note before getting down to writing the rest of scraper: we need
+        to be able to separate the data from the different parts of the tables on the
+        page we want, versus everything else. Our scraper will need to download all
+        of the columns for Contract Name, Last Trade Date, Strike, Last Price,
+        Bid, Ask, Volume, Open Interest, and Implied Volatility. The Firefox inspector is
+        useful here. We see in the inspector that each of these columns
+        is identified in the HTML with a class label. For example, class "data-col2 Ta(end)
+        Px(10px)" gives us the column containing strike price. With this information,
+        we can use BeautifulSoup to parse the HTML and extract only the data within
+        each column. </p>
+
+      <h4>Request and Parse HTML</h4>
+      <p>Using the information we gathered, let’s set up the initial request/parse
+        function to take user input, grab and parse the initial URL and all forward URLs.</p>
+      <p>We’ll create a function called <code>setup_info():</code> that takes no parameters.
+        It will request user input for the ticker, number of expirations, and a
+        file path where the user wants the .csv to be saved. It will request the
+        initial page and invoke BeautifulSoup to parse the main page HTML and
+        create a list of forward expirations. The function will return a list of
+        URLs for each expiration up to the number requested. Here, we will search
+        the html for the Unix timestamp dates with <code>.find("expirationDates")</code>
+        and a bit of string slicing, then save them into a list.</p>
+
+      <pre><code>
+      def setup_info():
+        """
+        Intro and request input desired ticker and number of expirations;
+        set request URL; request main ticker page; parse all forward expiration
+        URLs from main page; prompt download in progress.
+        """
+
+        ticker = input("Enter ticker symbol: ")
+        main_url = "https://finance.yahoo.com/quote/"+ticker+"/options"
+        num_exps = int(input("\nEnter the number of expirations to pull (e.g, 15 = 30days, 25 = 6mos; max is 34]: "))
+        file_path = input("\nEnter a file path for your download: ")
+        soup = bs(requests.get(main_url).content, 'html.parser')
+        print("\nPlease wait while options data downloads...\n")
+        exp_dates_lst = list((str(soup)[(int(str(soup).find("expirationDates")) + 18):(int(str(soup).find("expirationDates")) + 414)]).split(",")) #Change 1 #Note this assumes there are the same number of expiration dates always.
+
+        return [[(main_url+"?date="+date) for date in exp_dates_lst[0:num_exps]],num_exps,file_path]
+      </code></pre>
+      <br>
+
+    <h4>Get HTML for Tables</h4>
+    <p>A second function will use Beautiful Soup to parse the HTML for each page
+      in our URL list. It will place these into separate call and put tables and
+      attach an expiration date, which is converted from the Unix timestamp in
+      the URL. It will return the call table  and put table HTML. </p>
+
+    <pre><code>
+    def get_table_html(url):
+      """
+      Pull html from URL; parse w/ BeautifulSoup; return 'call' & 'put'
+      table html and expiration date.
+      """
+
+      soup = bs(requests.get(url).content, 'html.parser')
+      call_table_html = soup.find(class_="calls W(100%) Pos(r) Bd(0) Pt(0) list-options")
+      put_table_html = soup.find(class_="puts W(100%) Pos(r) list-options")
+      exp_date = dt.utcfromtimestamp((int(url[-10:]))).strftime('%Y-%m-%d')
+
+      return call_table_html, put_table_html, exp_date
+      </pre></code>
+      <br>
+
+    <h4>Convert HTML to “Call” and “Put” Dataframes</h4>
+    <p>The third function is called <code>html_to_df():</code> and takes three
+      parameters: 1) the relevant table’s HTML, 2) option type (call or put), and
+      3) expiration date. It will create a Pandas dataframe based upon several
+      columns within the HTML: Contract Name, Last Trade Date, Strike, Last Price,
+      Bid, Ask, Volume, Open Interest, and Implied Volatility. The class identifiers
+      for each column are set out in the “soup_list” variable. We then iterate
+      through each column in the list and extract the column text and append these
+      into a sub-list. The function returnsa Pandas dataframe with the columns we
+      have requested and the data within each. </p>
+
+      <pre><code>
+    def html_to_df(table_html, option_type, exp_date):
+      """
+      For each expiration (an HTML table), take table_html, option_type, exp_date;
+      parse table from html; load strike, bid, ask, vol, OI, and last trade
+      columns into Pandas dataframe.
+      """
+
+      soup_lst = ["Fz(s) Ell C($linkColor)", #0 contracts
+                  "data-col2 Ta(end) Px(10px)", #1 strike
+                  "data-col4 Ta(end) Pstart(7px)", #2 bid
+                  "data-col5 Ta(end) Pstart(7px)", #3 ask
+                  "data-col8 Ta(end) Pstart(7px)", #4 vol
+                  "data-col9 Ta(end) Pstart(7px)", #5 oi
+                  "data-col1 Ta(end) Pstart(7px)", #6 lst trd
+                  "data-col10 Ta(end) Pstart(7px) Pend(6px) Bdstartc(t)" #7 imp vol
+                  ]
+      txt_lst = []
+      for col in soup_lst:
+          html = table_html.find_all(class_=col)
+          txt_lst.append([i.get_text() for i in html])
+
+      return pd.DataFrame({   "datePulled": str(dt.now().strftime("%Y-%m-%d")),
+                                      "timePulled": tm.strftime("%H:%M:%S"),
+                                      "contract": txt_lst[0],
+                                      "type": option_type,
+                                      "expiry": exp_date,
+                                      "strike": txt_lst[1],
+                                      "bid": txt_lst[2],get_table_html(url):
+                                      "ask": txt_lst[3],
+                                      "volume": txt_lst[4],
+                                      "oi": txt_lst[5],
+                                      "lastTrd": txt_lst[6],
+                                      "impVol": txt_lst[7]
+                                      })
+        </pre></code>
+        <br>
+
+    <h4>Consolidate Dataframes and Save to File</h4>
+    <p>The fourth and final function, <code>create_and_write_df()</code>, will load the parsed data
+      from several columns into a Pandas dataframe for each page. We've selected the contract
+      name, expiration date, strike price, bid price, ask price, volume, open
+      interest, and last trade. We will also add in columns for the date and time
+      pulled for our own reference. Once each page is downloaded and parsed, a
+      dataframe is created for the page. Each additional expiration is concatenated
+      to the main Pandas dataframe as they are downloaded. For a bit of visual
+      feedback, the function uses the TQDM module to provide a progress bar in
+      the terminal on how the download is progressing. Finally, once we have
+      obtained the final expiration, the dataframe is written to a .csv file
+      and saved at the path specified by the user.</p>
+
+    <pre><code>
+  def create_and_write_df():
+      """
+      Take list of URLs for all forward expirations; get data through calls to
+      get_table_html() and html_to_df(); concatenate dataframes; write full
+      dataframe to .csv with number of expirations, and date pulled in filename
+      """
+        setup = setup_info() #urls for all expiries [0], number of expiries [1], save file path [2]
+        full_frames = []
+        for url in tqdm(setup[0]):
+            optns_tbls_html = get_table_html(url) #This will return call and put table text html as [0] and [1]
+            full_frames.append(html_to_df(optns_tbls_html[0], "CALL", optns_tbls_html[2]))
+            full_frames.append(html_to_df(optns_tbls_html[1], "PUT", optns_tbls_html[2]))
+            tm.sleep(0.4) #Throttle requests to be nice to server / not get blocked.
+        #Concatenate all dfs and write to file
+        col_lst = ["datePulled","timePulled","contract", "type", "expiry","strike","bid","ask","volume","oi","lastTrd","impVol"]
+        pd.concat(full_frames).to_csv (r''+setup[2]+str(dt.now().strftime("%Y-%m-%d"))+'_SPY_Options_Data_'+str(setup[1])+'_expiries.csv',mode='w', index = False, header=True,columns=col_lst)
+
+  create_and_write_df()
+  print("\nDownload complete!")
+    </pre></code>
+    <br>
+
+    <h4>Some Observations  Recommendations</h4>
+    <p>One feature I added within the <code>create_and_write_df()</code> function is a throttling
+      mechanism that pauses for about a half second between each URL request.
+      This is done with the command <code>tm.sleep(0.4)</code> within the “for loop” that
+      creates each dataframe. This pauses each request for 0.4 seconds.
+      I do not have data on what criteria Yahoo uses to
+      initiate a ban on a automated requests, but figured that one to two requests
+      per second (with a total of less than 35 per session) and repeating the
+      process once or twice a day is probably not excessive. I have not been banned
+      yet. It's important to respect the resources you draw on, especially since
+      this is a free, user-facing resource and not an API.</p>
+
+    <p>Note with this implementation, there are currently no loops to repeat requests
+      if they are unsuccessful, which would be a useful addition. Sometimes,
+      for reasons I have not yet identified, the download process will fail to
+      load one of the forward URLs. In these situations, I just re-run it. </p>
+
+  <h4>Conclusion</h4>
+
+  <p>This was the first Python coding project I developed that had more than trivial
+    real-world utility. It has gone through a few revisions and I am certain
+    there are much more elegant ways to get from point A to B with it. Because it does not
+    repeat failed requests, it will occasionally fail and need to be re-started.
+    That said, I tried loading it onto a Raspberry Pi and I scheduled a cronjob
+    for it to run twice daily and download 25 expirations of SPY (and create a ~6000 row .csv)
+    twice a day for about a month and it only missed a couple of downloads.</p>
+
+  </div>
+  <footer>
+   <p> Copyright © 2020-2021 James Bush. | <a class="header" href="terms.html">terms</a> | <a class="header" href="privacy.html">privacy</a></p>
+  </footer>
+</body>
+</html>
+
