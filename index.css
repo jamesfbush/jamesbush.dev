@@ -58,7 +58,7 @@ body {
 div {
   border: none;
   margin:auto;
-  width: 75%;
+  width: 85%;
   background-color: #403D39;
   padding-top: 25px;
   padding-bottom: 25px;
@@ -78,7 +78,7 @@ pre code {
   font-size: 100%;
   background-color: #2C2B28;
   display: block;
-  width:95%;
+  width:85%;
   padding: 10px;
   overflow: scroll; /* Use horizontal scroller if needed; for Firefox 2, not needed in Firefox 3 */
   word-break: normal !important;
@@ -110,7 +110,7 @@ a.header:active {
 }
 /* Body links */
 a.body:link {
-  color: #868179;
+  color: #247ba0;
   background-color: transparent;
   text-decoration: underline;
 }
@@ -120,7 +120,7 @@ a.body:visited {
   text-decoration: underline;
 }
 a.body:hover {
-  color: #247ba0;
+  color: #868179;
   background-color: transparent;
   text-decoration: underline;
 }
