@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html><head>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <title>A Self-Hosted VPN Server With Wireguard | jamesbush.dev</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" charset="utf-8">
+  <link rel="stylesheet" href="A%20Self-Hosted%20VPN%20Server%20With%20Wireguard%20|%20jamesbush.dev_files/css2.css">
+  <link rel="stylesheet" type="text/css" href="A%20Self-Hosted%20VPN%20Server%20With%20Wireguard%20|%20jamesbush.dev_files/index.css">
+</head>
+<body>
+  <h1>James Bush</h1>
+  <h2>
+    <a class="header" href="https://jamesbush.dev/index.html">⌂</a>
+    <a class="header">|</a>
+    <a class="header" href="https://jamesbush.dev/about.html">about</a>
+    <a class="header">|</a>
+    <a class="header" href="https://jamesbush.dev/posts">posts</a>
+    <a class="header">|</a>
+    <a class="header" href="https://jamesbush.dev/projects.html">projects</a>
+    <a class="header">|</a>
+    <a class="header" href="https://jamesbush.dev/contact.html">contact</a>
+    <a class="header">|</a>
+    <a class="header" href="https://jamesbush.dev/etc.html">etc</a>
+  </h2>
+  <div>
+    <h3><strong>A Self-Hosted VPN Server With Wireguard</strong></h3>
+    <p><strong>Jun. 28, 2021</strong></p>
+    <a title="Grzegorz W. Tężycki, CC BY-SA 4.0 &lt;https://creativecommons.org/licenses/by-sa/4.0&gt;, via Wikimedia Commons" href="https://commons.wikimedia.org/wiki/File:Key%E2%9A%B757--20REIESX.jpg"><img alt="Key⚷" src="A%20Self-Hosted%20VPN%20Server%20With%20Wireguard%20|%20jamesbush.dev_files/128px-Key57--20REIESX.jpg" style="margin: 0px 15px 5px 0px" width="128" align="left"></a>
+    <p> There are many privacy-related reasons to use a <a href="https://en.wikipedia.org/wiki/Virtual_private_network" target="_blank" class="body">VPN</a>,
+      and probably just as many companies willing to sell you a subscription.
+      <a href="https://privacytools.io/providers/vpn/" class="body" target="_blank">Some</a>
+      are good, others less so. After about 4 years of being mostly satisfied with
+      a paid VPN service, I identified several reasons to build a self-hosted VPN server.</p>
+
+    <p> Despite paid services' privacy assurances, the only guarantee of solid privacy
+      practices and implementation is self-hosting. Ideally, a paid VPN service
+      should work without DNS leakage, but my paid service would leak DNS look-ups
+      if I didn't manually configure a DNS server for each client. After about 4
+      years of use, many websites and applications (e.g., banking) also began to
+      blacklist my provider's servers. This alone was a breaking point in favor of
+      self-hosting. As an added benefit, a self-hosted VPS setup ran $5/month,
+      which was less than half the VPN subscription (~$12/month). There is
+      also no cap on the number of devices I can run.</p>
+
+    <p>For this implementation, we'll use <a href="https://www.wireguard.com/" target="_blank" class="body">Wireguard</a>, a newer and relatively lightweight
+      VPN tunneling application developed by Jason A. Donenfeld. <a href="https://jamesbush.dev/posts/210629.html#Notes" class="body">[1]</a>
+      In my experience, it is extremely fast, reliable and, from what I've seen,
+      cryptographically sound.</p>
+
+    <br>
+    <h4>Step One: Deploy and Secure Cloud Sever </h4>
+
+    <p>Among many cloud sever providers, I like Linode. A $5/month Nanode
+      includes the Linux distro of your choice, 1 CPU, 25GB storage, and 1GB RAM,
+      which is enough to run a decent single-home VPN setup. Linode has a detailed
+      start-up <a href="https://www.linode.com/docs/guides/getting-started/#create-a-linode" class="body" target="_blank">guide</a> on deploying a server. This walk-through
+      is based on Ubuntu 20.04.</p>
+
+    <p>Pick a distribution and size. Then set a root password. Note the public
+      IPv4 address given when the server is deployed. Open a terminal window on
+      your local machine. SSH into your new server by entering:</p>
+
+    <pre><code>ssh root@xx.xx.xx.xx</code></pre>
+
+    <p>Enter the root password set at deployment and you’re in. The terminal should
+      display:</p>
+
+      <pre><code>root@localhost</code></pre>
+
+    <p>Linode has a helpful <a href="https://www.linode.com/docs/guides/securing-your-server/" class="body" target="_blank">guide</a> on securing
+      the server, so that topic is not covered here in detail. At a minimum, make
+      sure to 1) create a limited, non-root user account with sudo privileges,
+      2) disable password login via SSH, 3) disable root access via SSH, 4)
+      enable SSH pre-shared key login, 5) install/activate an
+      additional firewall (this guide uses UFW), 6) install and activate
+      fail2ban, and 7) close any unused ports.</p>
+
+    <p>Before installing and configuring Wireguard, make sure to set rules in
+      UFW that will keep the appropriate ports for SSH and the Wireguard service
+      open:</p>
+
+    <pre><code>sudo ufw allow 22/tcp<br>sudo ufw allow 51820/udp<br>sudo ufwenable</code></pre>
+
+    <br>
+    <h4>Install Wireguard on Server and Client</h4>
+    <p>The first step is to install Wireguard which, on a fresh installation of
+      Ubuntu 20.04 or later, should be straightforward: </p>
+
+    <pre><code>sudo apt install wireguard</code></pre>
+
+    <p>Next, the two major steps of setting up Wireguard are 1) configure the server
+      and 2) configure the client.</p>
+
+    <br>
+    <h4>Configure Wireguard Server</h4>
+
+    <p> Root privileges will be required to access the Wireguard directory,
+      <code>/etc/wireguard</code>. It’s wise to minimize the amount of work done as root to
+      keep from accidentally breaking something, so we’ll only do a couple things.
+      Elevate privilege to root and navigate to the Wireguard directory:</p>
+
+    <pre><code>sudo -i <br>cd /etc/wireguard</code></pre>
+
+    <p>In the <code>/etc/wiregaurd</code> directory, create a configuration file with
+      Nano (or Vim, etc.):</p>
+
+    <pre><code>nano wg0.conf</code></pre>
+
+    <p>The server configuration file will have two sections, one for the Wireguard
+      interface, <code>[Interface]</code>, and one for each client,
+      under <code>[Peer]</code>. (Note: server and client refer to eachother as "peer".)
+      For the server configuration, each additional client will be listed under a new
+      <code>[Peer]</code> heading.
+
+    </p><pre><code>
+    [Interface]
+    Address = 10.0.0.1/24
+    Address = fd86:ea04:1115::1/64
+    SaveConfig = true
+    PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE; ip6tables -A FORWARD -i wg0 -j ACCEPT; ip6tables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+    PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE; ip6tables -D FORWARD -i wg0 -j ACCEPT; ip6tables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+    ListenPort = 51820
+    PrivateKey = &lt;server private key&gt;
+
+    [Peer]
+    PublicKey = &lt;client public key &gt;
+    AllowedIPs = 10.0.0.2/32
+    </code></pre>
+
+    <p>Below is a breakdown of each of the fields. Under <code>[Interface]</code>:
+      </p><ul>
+        <li><strong>Address</strong> – these is the private LAN addresses of the server,
+          set to 10.0.0.1/24 and fd86:ea04:1115::1/64. You could use
+          <a href="https://en.wikipedia.org/wiki/Private_network" class="body" target="_blank">other</a> ranges as well. </li>
+        <li><strong> SaveConfig</strong> – setting to <code>true</code> will save the configuration
+          automatically when taken up/down.</li>
+        <li><strong>PostUp/PostDown</strong> – the settings outlined for each of these will configure
+          the server iptables to forward all client traffic through to the server’s
+          internet connection at eth0. Without these, clients cannot connect to
+          the internet, only the server’s LAN.</li>
+        <li><strong>ListenPort</strong> – this is the port set on the server to accept connections.
+        51820 is the port specified in Wireguard’s documentation and commonly used.
+        Thus, setting a different port can be a wise extra step for security reasons.</li>
+      </ul>
+    <p>Under <code>[Peer]</code>:</p>
+      <ul>
+        <li><strong>PublicKey</strong> – this is the public key generated on the peer machine.
+          Copy/paste it here onto the server’s configuration file.</li>
+        <li><strong>AllowedIPs</strong> – this is the IP assigned within the server’s LAN to the
+          client peer. Make sure it matches the client's configuration.</li>
+      </ul>
+    <p> Additional peers must be specified separately. For example, after setting
+      10.0.0.2/32 as the first client, so additional client peers could be
+      10.0.0.3/32, 10.0.0.4/32, etc. There are a number of other configuration fields.
+      See Wireguard’s <a href="https://www.wireguard.com/#conceptual-overview" class="body" target="_blank">documentation</a> for more detail.</p>
+
+    <p>Next, save the configuration file by exiting the text editor and saving.
+      It can be helpful to keep a backup of whatever configuration you are
+      working within <code>/etc/wireguard</code>, because when the configuration
+      is loaded, sometimes Wireguard will change/add a few fields. You may also
+      want to test different configurations and revert back to an earlier version.
+      To create the backup:</p>
+
+    <pre><code>cp wg0.conf wg0.conf.bak</code></pre>
+
+    <p>Since the modifications we need to make the Wireguard directory are done,
+      we can exit as root back to our normal account by entering <code>exit</code>
+      in the terminal.</p>
+
+    <p>Next, bring up the configuration on the server:</p>
+
+    <pre><code>sudo wg-quick up wg0</code></pre>
+
+    <p>Note: <code>wg-quick</code> is a wrapper for Wireguard that contains
+      much of the functionality needed for implementing configurations. Save the
+      current configuration:</p>
+
+    <pre><code>sudo wg-quick save wg0</code></pre>
+
+    <p>To ensure the configuration starts when the server
+    boots, add the configuration to systemd:</p>
+
+    <pre><code>sudo systemctl enable wg-quick@wg0.service</code></pre>
+
+    <p>Start the service now:</p>
+
+    <pre><code>sudo systemctl start wg-quick@wg0.service</code></pre>
+
+    <p>The server should be ready. Next, we'll configure the client.</p>
+
+    <br>
+    <h4>Configure Wireguard on Client Side</h4>
+
+    <p>I configured Wireguard on a Linux desktop. It is similar to, but much
+    easier than setting up the server. Windows and Mac have their own GUI clients.
+    If you create a configuration file like below, load it into the Mac/Windows
+    client and you should be good to go. But for a Debain-based Linux distribution,
+    first install Wireguard:</p>
+
+    <pre><code>sudo apt install wireguard</code></pre>
+
+    <p>Elevate permissions to root:</p>
+
+    <pre><code>sudo -i</code></pre>
+
+    <p>Navigate to the Wireguard directory:</p>
+
+    <pre><code>cd /etc/wireguard</code></pre>
+
+    <p>Generate a public/private keypair in the  local directory:</p>
+    <pre><code>umask 077<br>wg genkey | tee privatekey | wg pubkey &gt; publickey</code></pre>
+
+    <p>Create a configuration file:</p>
+
+    <pre><code>nano wg0.conf</code></pre>
+
+    <p>Add the following the the configuration file:</p>
+
+    <pre><code>
+    [Interface]
+    Address = 10.0.0.3/32
+    DNS = 1.1.1.1, 1.0.0.1
+    ListenPort = 51820
+    PrivateKey = &lt;client private key&gt;
+
+    [Peer]
+    PublicKey = &lt;server public key&gt;
+    AllowedIPs = 0.0.0.0/0, ::/0
+    </code></pre>
+
+    <p>Under <code>[Interface]</code>:</p>
+    <ul>
+      <li><strong>Address</strong> – make sure this address matches the address specified in the
+        server side <code>[Peer]</code> configuration—this will be the client’s address on the
+        server LAN.</li>
+      <li><strong>DNS</strong> – Some guides suggest setting DNS to the server’s default
+        addresss, but I could not get the configuration to work without explicitly
+        setting an outside DNS. There are several DNS <a href="https://privacytools.io/providers/dns/" target="_blank" class="body">providers</a>
+        and 1.1.1.1 and 1.0.0.1 are Cloudflare, which is a decent option.</li>
+      <li><strong>ListenPort</strong> - 51820 is the same as the server.</li>
+      <li><strong>PrivateKey</strong> - enter the client’s private key. The client public/private
+        keys will be saved in the <code>/etc/wireguard</code> directory. You can
+        copy them from the command line with <code>cat publickey</code> and
+        <code>cat privatekey</code> while in the Wireguard directory.</li>
+    </ul>
+    <p>Under <code>[Peer]</code>:</p>
+    <ul>
+      <li><strong>PublicKey</strong> - enter the server’s public key.</li>
+      <li><strong>AllowedIPs</strong> - set this to 0.0.0.0/0, ::/0.</li>
+    </ul>
+
+    <p>As with the server, save and exit the wg0.conf file and <code>exit</code> root.
+
+    </p><p>Load the configuration:</p>
+
+    <pre><code>sudo wg-quick up wg0</code></pre>
+
+    <p>Save the configuration:</p>
+
+    <pre><code>sudo wg-quick save wg0</code></pre>
+
+    <p>To ensure that the configuration starts when your machine boots,
+      add the configuration to systemd:</p>
+
+    <pre><code>sudo systemctl enable wg-quick@wg0.service</code></pre>
+
+    <p>Start the service now:</p>
+
+    <pre><code>sudo systemctl start wg-quick@wg0.service</code></pre>
+
+    <p>The client and server should now be connected. Let's test it.</p>
+
+    <br>
+    <h4>Testing &amp; Troubleshooting</h4>
+
+    <p>With the server and the client configurations complete and up, there are
+      several ways to test the connection. On each machine, check the service
+      is running:</p>
+
+    <pre><code>sudo systemctl status wg-quick@wg0</code></pre>
+
+    <p>The service should display something like:</p>
+    <pre><code>● wg-quick@wg0.service - WireGuard via wg-quick(8) for wg0
+     Loaded: loaded (/lib/systemd/system/wg-quick@.service; enabled; vendor present: enaled&gt;
+     Active: <strong>active (exited)</strong> since Mon 2021-06-28 13:31:56 PDT; 21h ago
+       Docs: man:wg-quick(8)
+             man:wg(8)
+             https://www.wireguard.com/
+             https://www.wireguard.com/quickstart/
+             https://git.zx2c4.com/wireguard-tools/about/src/man/wg-quick.8
+             https://git.zx2c4.com/wireguard-tools/about/src/man/wg.8
+        Process: 1234 ExecStart=/usr/bin/wg-quick up wg0 (code=exited, status=0/SUCCESS)
+      Main PID: 1234 (code=exited, status=0/SUCCESS)</code></pre>
+
+    <p>Next, ping the server:</p>
+
+    <pre><code>ping 10.0.0.1</code></pre>
+
+    <p>This should return something like:</p>
+
+    <pre><code>PING 10.0.0.1 (10.0.0.1) 56(84) bytes of data.<br>64 bytes from 10.0.0.1: icmp_seq=1 ttl=64 time=31.6 ms<br>64 bytes from 10.0.0.1: icmp_seq=2 ttl=64 time=31.7 ms</code></pre>
+
+    <p>If you receive no response, there is likely a problem in the server or
+      client configuration file. Scan each config file carefully to ensure client
+      address matches and that your public and private keys are correct. You can
+      take down the connection with:</p>
+
+    <pre><code>wudo wg-quick down wg0</code></pre>
+
+    <p>After checking each config file, restart the connection on the client and
+      server again with:</p>
+
+    <pre><code>sudo wg-quick up wg0</code></pre>
+
+    <p>If you get a successful ping response, next, ping an outside server:</p>
+
+    <pre><code>ping 1.1.1.1</code></pre>
+
+    <p>If the ping returns a response, traffic is being properly forwarded to the
+      internet through the server LAN. If it doesn't, check the configuration of the
+      <code>PostUp/PostDown</code> fields in the server config file.
+      Make sure the server's network interface (here we use <code>eth0</code>)
+      matches server interface when you enter <code>ip link show</code> in a terminal
+      window for the server.</p>
+
+    <p>Once receiving a successful ping response to an IPv4 address, try a domain name:</p>
+
+    <pre><code>ping eff.org</code></pre>
+
+    <p>If a ping to a domain name is successful, we know port forwarding is working,
+      and DNS look-ups are working as well. At this juncture, by following the Linode guide
+      and re-doing the process once, I still had issues. I was getting a ping
+      response to outside servers using an IPv4 address, but not a
+      domain name. I had a theory this was because the client did not have a DNS
+      to lookup domains, so I used Wireguard’s DNS field and set the DNS to
+      Cloudflare per above. So, if you can ping outside IPv4 addresses, but not
+      domain names, try specifying an external DNS server.</p>
+
+    <p>Now, check the client's public IPv4 address:</p>
+
+    <pre><code>curl icanhazip.com</code></pre>
+
+    <p>The return address should match your server’s IPv4 address.</p>
+
+    <p>Next, make sure you're not getting a DNS leak on look-ups. Open a tab
+      in Firefox and check <a href="https://www.dnsleaktest.com/" target="_blank" class="body">DNS Leak Test</a>. The IPv4 address and location should again
+      match the server's. Run an "extended test" to check for a DNS leak.
+      The DNS server provider display as the one set in the
+      configuration file (we used <code>DNS = 1.1.1.1, 1.0.0.1</code>) for Cloudflare.
+      In theory, the location of the DNS server should be near the geographic
+      location of your VPS. If you receive more than one server listed or the server
+      matches your ISP, you likely have a DNS leak. Double check the configuration files. </p>
+
+    <p>Speed can be tested with a number of services from desktop. Okoola’s works fine.
+      One great thing I noticed with my setup was the difference in speed between my
+      own VPN service versus my old VPN provider (nearly 10x faster).
+      In fact, the new self-hosted VPN setup is comparable in terms of download/upload
+      speed to no VPN at all. The latency is a bit higher
+      than using no VPN, but it is still better than the old VPN service. Also,
+     sites like Craigslist are no longer blacklisted.</p>
+
+    <br>
+    <h4>Conclusion</h4>
+
+    <p>For a couple days' work and bit of troubleshooting, I was able to build a
+      self-hosted VPN server that was about 10 times faster than my old provider
+      for half the price and no blacklisting.</p>
+
+    <p>For future improvments, I may change the configuration so that my home
+      router connects to the VPN server directly and all attached devices do
+      not need separate connections. If you've spotted any bugs in this 
+implementation, please drop me a <a href="https://jamesbush.dev/posts/jamesbush.dev/contact.html" class="body">message.</a></p>
+
+    <br>
+    <h4 id="Notes">Notes</h4>
+    <p>[1] "WireGuard" and the "WireGuard" logo are registered trademarks of
+      Jason A. Donenfeld.</p>
+
+  </div>
+  <footer>
+   <p> Copyright © 2020-2021 James Bush. | <a class="header" href="https://jamesbush.dev/posts/terms.html">terms</a> | <a class="header" href="https://jamesbush.dev/posts/privacy.html">privacy</a></p>
+  </footer>
+
+
+</body></html>
